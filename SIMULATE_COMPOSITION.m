@@ -205,8 +205,7 @@ Uun = (repmat(dn,1,N).*Phin).'*ones(R,1);
 
 figure(1);
 plot_temperature_profile(X,Uun.' + T_st,'b-');
-hold on;
-plot_temperature_profile(X,Un.' - T_st,'k-');
+
 
 %% construct state space
 
@@ -246,6 +245,111 @@ for i = 1:length(t)
    UR1(:,i) = (repmat(y(i,:).',1,N).*Phin).'*ones(R,1);
    UR2(:,i) = (repmat(y(i,1:Modal).',1,N).*Phin(1:Modal,:)).'*ones(Modal,1);%3 %20
 end
+
+disp('press any key to start the simulation video')
+pause;
+figure(1);
+for i = 1:length(T)
+    cla
+    plot_wall(S,100,10); 
+    hold on;
+    plot_temperature_profile(X,T_0,'k:');
+    plot_temperature_profile(X,T_st,'k--');
+    plot_temperature_profile(X,T_st+UR1(:,i).','b-');
+    plot_temperature_profile(X,T_st+UR2(:,i).','r-');
+    text = ['time = ',num2str(1000*T(i),'%2.3f'),' (ms)','; ','$q_1$ = ',num2str(input1(i)/1000),' (kcal)','; ','$q_2$ = ',num2str(input2(i)/1000),' (kcal)'];
+    title(text,'interpreter','latex');
+    text = ['FO order: ', num2str(R), '$\;$(blue); $\;$', 'FO order: ', num2str(3), '$\;$(red)'];
+    xlabel(text,'interpreter','latex')
+    plot_labels(85,TM,S);
+    axis([S(1) S(end) 10 100]);
+    pause(1/60);
+end
+
+%% POT
+
+W = UR1*UR1.';
+
+[U,E,V] = svd(W);
+
+Phi_POD = (1/(sqrt(dx))*U(:,1:R_POD).');
+
+A = [];
+for i = 1:R_POD
+    for j = 1:R_POD;
+        A(i,j) = trapz(X,Phi_POD(i,:).*Phi_POD(j,:));
+    end
+end
+
+figure(5)
+subplot(1,2,1)
+surf(A); axis([0 R_POD 0 R_POD -0.1 1.1]); axis tight; view(45,30);
+title('$<\phi_{pod,n}(x),\phi_{pod,k}(x)>$','interpreter','latex')
+subplot(1,2,2)
+plot_wall(S,2,-2); hold on; 
+plot(X,Phi_POD);
+title('Natural modes for the POD','interpreter','latex')
+
+%%
+
+for i = 1:R_POD
+    for j = 1:R_POD
+        Cp(i,j) = (trapz(X,Phi_POD(i,:).*Phi_POD(j,:)));
+    end
+    
+    Bp(i,1) = trapz(X,w_0.*Phi_POD(i,:));
+end
+
+cp = linsolve(Cp,Bp); 
+
+Phi_POD_ddot=[]; 
+for i = 1:R_POD
+    Phi_POD_ddot=[Phi_POD_ddot; gradient(gradient(Phi_POD(i,:),dx),dx)];
+end;
+
+A = []; B = [];
+for i = 1:R_POD
+    for j = 1:R_POD
+        A(i,j) = (D(1)^2)*trapz(X(I1),Phi_POD_ddot(i,I1).*Phi_POD(j,I1)) + (D(2)^2)*trapz(X(I2),Phi_POD_ddot(i,I2).*Phi_POD(j,I2)) + (D(3)^2)*trapz(X(I3),Phi_POD_ddot(i,I3).*Phi_POD(j,I3));
+        %A(i,j) = (D(1)^2)*trapz(X,Phi_POD_ddot(i,:).*Phi_POD(j,:)) + (D(2)^2)*trapz(X,Phi_POD_ddot(i,:).*Phi_POD(j,:)) + (D(3)^2)*trapz(X,Phi_POD_ddot(i,:).*Phi_POD(j,:));
+    end
+    
+    B(i,1) = (D(1)^2/K(1))*trapz(X,l1.*Phi_POD(i,:));
+    B(i,2) = (D(3)^2/K(3))*trapz(X,l3.*Phi_POD(i,:));
+end
+
+C = eye(R_POD,R_POD);
+D = zeros(R_POD,2);
+
+sys = ss(A.',B,C,D);
+
+[y,t,q] = lsim(sys,u,T,cp);
+
+for i = 1:length(t)
+   UPOD(:,i) = (repmat(y(i,:).',1,N).*Phi_POD).'*ones(R_POD,1);
+end
+
+disp('press any key to start the simulation video for POD')
+pause;
+figure(1);
+for i = 1:length(T)
+    cla
+    plot_wall(S,100,10); 
+    hold on;
+    plot_temperature_profile(X,T_0,'k:');
+    plot_temperature_profile(X,T_st,'k--');
+    plot_temperature_profile(X,T_st+UR1(:,i).','b-');
+    plot_temperature_profile(X,T_st+UR2(:,i).','g-');
+    plot_temperature_profile(X,T_st+UPOD(:,i).','r-');
+    text = ['time = ',num2str(1000*T(i),'%2.3f'),' (ms)','; ','$q_1$ = ',num2str(input1(i)/1000),' (kcal)','; ','$q_2$ = ',num2str(input2(i)/1000),' (kcal)'];
+    title(text,'interpreter','latex');
+    text = ['FO order: ', num2str(R), '$\;$(blue); $\;$', 'POD order: ', num2str(R_POD), '$\;$(red); $\;$', 'FO order: ', num2str(3), '$\;$(green)'];
+    xlabel(text,'interpreter','latex')
+    plot_labels(85,TM,S);
+    axis([S(1) S(end) 10 100]);
+    pause(1/60);
+end
+
 %% Temperature + Moisture [Same Basis]
 % % % % for i = 1:length(t)
 % % % %    UR1(:,i) = (repmat(y(i,:).',1,N).*Phin).'*ones(R,1);
